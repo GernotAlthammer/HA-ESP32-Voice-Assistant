@@ -1,0 +1,523 @@
+##################################################################
+#### 2024-01-06 Local VOICE ASSISTANT on ESP32 Dev C - AZ-Delivery DevKit V4
+#### Schaltplan gemäß UPDATE#2 geändert
+#### 2024-02-11 Added Web Server
+#### 2024-02-16 Change to nodemcu-32s = ESP32 Dev Kit V2 NOCEMCU board
+#### 2024-02-17 Change to esp32dev board 
+#### 2024-06-29 Update OTA for ESPhome V6
+#### 2024-08-26 Disabled Web Server to reduce menory usage
+#### 2024-08-30 Changed Output to media_player
+#### 2024-09-23 Changed i2S configuration for ESPHOME V9.1
+#### 2025-03-08 Changed WLAN Fallback Password
+####
+esphome:
+  name: voice-assistant
+  comment: "ESP32 Voice Assistant MAX98357A INMP441 WS2812"
+
+  project:
+    name: "ESP32.Voice Assistant"
+    version: "1.0"
+
+  friendly_name: Voice Assistant
+  
+  on_boot:
+    - priority: -100
+      then:
+        - wait_until: api.connected
+        - delay: 1s
+        - light.turn_on:
+            id: led_ring
+            brightness: 75%
+            red: 100%
+            green: 100%
+            blue: 50%
+        - delay: 1s
+        - light.turn_on:
+            id: led_ring
+            brightness: 75%
+            red: 50%
+            green: 100%
+            blue: 0%
+        - delay: 1s
+        - media_player.volume_set:
+            id: media_i2s
+            volume: 50%
+        - light.turn_off:
+            id: led_ring
+        - if:
+            condition:
+              switch.is_on: use_wake_word
+            then:
+              - voice_assistant.start_continuous:
+
+
+#### ESP32 Board Configuration
+esp32:
+  board: az-delivery-devkit-v4 # see https://docs.platformio.org/en/latest/boards/espressif32/az-delivery-devkit-v4.html
+  #board: nodemcu-32s
+  #board: esp32dev
+  framework:
+    type: arduino
+    #type: esp-idf
+    version: recommended
+
+
+# Enable Web Server Interface
+#web_server:
+#  port: 80
+#  version: 2
+#  log: false
+#  auth:
+#    username: "voice-assistant"
+#    password: !secret web_server_password
+
+
+# Enable logging
+logger:
+  #level: VERBOSE
+  level: DEBUG #### Standard
+
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "fGrZe110w8o5YhA3I3OSdTFDpFACB6t8DBn/1Qtzk8c="
+
+ota:
+  platform: esphome
+  password: "1234567890"
+
+wifi:
+  networks:
+  - ssid: !secret wifi_ssid
+    password: !secret wifi_password
+  - ssid: !secret wifi_ssid_2
+    password: !secret wifi_password_2
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Voice-Assistant Fallback Hotspot"
+    password: "1234567890" # No Password
+
+
+captive_portal:
+
+
+#### LED LIGHT RING ##############################################
+####
+light:
+  # LED RING WS2812 with 24 LEDs
+  - platform: esp32_rmt_led_strip
+    rgb_order: GRB
+    chipset: ws2812
+    rmt_channel: 0
+  #- platform neopixelbus  
+    #type: GRB
+    #variant: WS2812
+    pin: GPIO23 # Original GPIO4
+    num_leds: 24
+    name: "LED Ring"
+    id: "led_ring"
+    icon: mdi:led-strip-variant
+
+#  - platform: status_led
+#    name: "Status LED"
+#    pin: GPIO23
+  #  pin:
+  #    number: GPIO2
+  #    mode: INPUT_PULLUP
+  #    inverted: True
+#    restore_mode: ALWAYS_OFF
+
+
+#### The i2s_audio component allows for sending and receiving audio via I²S. This component only works on ESP32 based chips
+#### Example Code from smarthomecircle.com/setup-esp32-with-wake-word-in-home-assistant
+#### Audi Configuration via I2S interface
+####
+i2s_audio: 
+  ## Microphone / Stand alone
+  - id: i2s_in
+    # Original
+    #i2s_lrclk_pin: GPIO27 # Original 27
+    #i2s_bclk_pin: GPIO26 # Original 26
+    
+  ### wenn gemeinsam dann auskommentiert
+     # UPDATE 3
+    i2s_lrclk_pin: GPIO17     # geht an WS / The GPIO pin to use for the I²S LRCLK (Left/Right Clock) signal
+    i2s_bclk_pin: GPIO16      # geht an SCK / The GPIO pin to use for the I²S BCLK (Bit Clock) signal
+  
+  ## Speaker or Mediaplayer / Stand alone
+  - id: i2s_out
+    # Original
+    #i2s_lrclk_pin: GPIO25 # Original 25
+    #i2s_bclk_pin: GPIO14 # Original 14
+
+  #### Gemeinsames LRCLK und BCLK 
+    # UPDATE 3
+    i2s_lrclk_pin: GPIO27     # geht an LRC und an WS / The GPIO pin to use for the I²S LRCLK (Left/Right Clock) signal
+    i2s_bclk_pin: GPIO26      # geht an BCLK und an SCK / The GPIO pin to use for the I²S BCLK (Bit Clock) signal
+
+
+#### SPEAKER #####################################################
+####
+#speaker:
+#  - platform: i2s_audio
+#    id: speak_i2s #
+#    dac_type: external #
+#    i2s_audio_id: i2s_out # Speaker ID des MAX98357A / wenn gemeinsames Audio dann auskommenteiert
+#    i2s_dout_pin: GPIO25 # geht an DIN
+#    # mode: mono # old before V9.1
+#    channel: mono # new with V9.1
+
+
+#### MEDIAPLAYER #################################################
+####
+media_player:
+  - platform: i2s_audio #
+    name: "ESP32 Media player" #
+    id: media_i2s #
+    dac_type: external # Use an external DAC
+    i2s_audio_id: i2s_out # Speaker ID des MAX98357A / wenn gemeinsames Audio dann auskommenteiert
+    i2s_dout_pin: GPIO25 # The GPIO pin to use for the I²S DOUT/SDOUT (Data Out) signal
+    mode: mono # The mode of the I²S bus. Default mono
+    on_state:
+      - logger.log: "Media Player State updated!"
+    on_play:
+      - logger.log: "Media Playback started!"
+    on_pause:
+      - logger.log: "Media Playback paused!"
+    on_idle:
+      - logger.log: "Medie Playback finished!"
+
+
+#### MICRPHONE ###################################################
+microphone:
+  - platform: i2s_audio #
+    id: mic_i2s #
+    i2s_audio_id: i2s_in # Microphone ID des INMP441 / wenn gemeinsames Audio dann auskommenteiert
+    i2s_din_pin: GPIO13 #
+    adc_type: external # Use an external ADC connected to the I²S bus
+    pdm: false # INMP441 does not support PDM !!
+    sample_rate: 16000 # default 16000
+    bits_per_sample: 32bit # default 32bit
+    channel: right # new with V9.1 - default is right
+
+
+#### VOICE ASSISTANT #############################################
+voice_assistant:
+  microphone: mic_i2s
+  media_player: media_i2s
+  #speaker: speak_i2s
+  use_wake_word: false
+  noise_suppression_level: 2.0
+  #auto_gain: 31dBFS
+  #volume_multiplier: 2.5
+  id: assist
+
+  ### LED ring animation if Wake Word is detected
+  on_listening:
+  - light.addressable_set:
+      id: led_ring
+      range_from: 16
+      range_to: 17
+      red: 0%
+      green: 0%
+      blue: 100%
+  - delay: 0.03s
+  - light.addressable_set:
+      id: led_ring
+      range_from: 15
+      range_to: 18
+      red: 0%
+      green: 0%
+      blue: 100%
+  - delay: 0.03s
+  - light.addressable_set:
+      id: led_ring
+      range_from: 14
+      range_to: 19
+      red: 0%
+      green: 0%
+      blue: 100%
+  - delay: 0.03s
+  - light.addressable_set:
+      id: led_ring
+      range_from: 13
+      range_to: 20
+      red: 0%
+      green: 0%
+      blue: 100%
+  - delay: 0.03s
+  - light.addressable_set:
+      id: led_ring
+      range_from: 12
+      range_to: 21
+      red: 0%
+      green: 0%
+      blue: 100%
+  - delay: 0.03s
+  - light.addressable_set:
+      id: led_ring
+      range_from: 11
+      range_to: 22
+      red: 0%
+      green: 0%
+      blue: 100%
+  - delay: 0.03s
+  - light.addressable_set:
+      id: led_ring
+      range_from: 10
+      range_to: 23
+      red: 0%
+      green: 0%
+      blue: 100%
+  - delay: 0.03s
+  - light.addressable_set:
+      id: led_ring
+      range_from: 9
+      range_to: 1
+      red: 0%
+      green: 0%
+      blue: 100%
+  - delay: 0.03s
+  - light.addressable_set:
+      id: led_ring
+      range_from: 9
+      range_to: 24
+      red: 0%
+      green: 0%
+      blue: 100%
+  - delay: 0.03s
+  - light.addressable_set:
+      id: led_ring
+      range_from: 7
+      range_to: 8
+      red: 0%
+      green: 50%
+      blue: 50%
+  - light.addressable_set:
+      id: led_ring
+      range_from: 0
+      range_to: 1
+      red: 0%
+      green: 50%
+      blue: 50%
+  - delay: 0.1s
+  - light.addressable_set:
+      id: led_ring
+      range_from: 2
+      range_to: 6
+      red: 0%
+      green: 100%
+      blue: 0%
+
+  ### On Start of Speach-To-Text processing
+  on_stt_vad_start:
+    - light.addressable_set:
+        id: led_ring
+        range_from: 2
+        range_to: 6
+        red: 0%
+        green: 50%
+        blue: 50%
+
+ ### On end of Speach-To-Text processing
+  on_stt_end:
+    - light.turn_off:
+        id: led_ring
+
+  ### On Start of Text-To-Speach processing
+  on_tts_start:
+    - light.addressable_set:
+        id: led_ring
+        range_from: 1
+        range_to: 24
+        red: 50%
+        green: 75%
+        blue: 25%
+    - delay: 1sec
+    - light.turn_off:
+        id: led_ring
+
+  ### On End of Text-To-Speach processing
+  on_tts_end:
+    - light.turn_off:
+        id: led_ring
+
+  ### Turn LED ring off if Voice Assist funtion has ended
+  on_end:
+    - delay: 100ms
+    - wait_until:
+        not:
+          #speaker.is_playing:
+          media_player.is_playing:
+    - light.turn_off:
+        id: led_ring 
+
+  ### On ERROR - An automation to perform when the voice assistant has encountered an error
+  on_error:
+    - light.addressable_set:
+        id: led_ring
+        range_from: 1
+        range_to: 6
+        red: 75%
+        green: 0%
+        blue: 0%
+    - light.addressable_set:
+        id: led_ring
+        range_from: 7
+        range_to: 12
+        red: 0%
+        green: 50%
+        blue: 50%
+    - light.addressable_set:
+        id: led_ring
+        range_from: 13
+        range_to: 18
+        red: 75%
+        green: 0%
+        blue: 0%
+    - light.addressable_set:
+        id: led_ring
+        range_from: 19
+        range_to: 24
+        red: 0%
+        green: 50%
+        blue: 50%
+    - if:
+        condition:
+          switch.is_on: use_wake_word
+        then:
+          - switch.turn_off: use_wake_word
+          - delay: 1sec
+          - switch.turn_on: use_wake_word
+          - light.turn_off:
+              id: led_ring   
+
+  on_client_connected:
+    - if:
+        condition:
+          switch.is_on: use_wake_word
+        then:
+          - voice_assistant.start_continuous:
+
+  on_client_disconnected:
+    - if:
+        condition:
+          switch.is_on: use_wake_word
+        then:
+          - voice_assistant.stop:
+          - light.turn_off:
+              id: led_ring  
+
+
+#### BINÄRE SENSOREN #############################################
+binary_sensor:
+  - platform: status
+    name: API Connection
+    id: api_connection
+    filters:
+      - delayed_on: 1s
+    on_press:
+      - if:
+          condition:
+            switch.is_on: use_wake_word
+          then:
+            - voice_assistant.start_continuous:
+
+    on_release:
+      - if:
+          condition:
+            switch.is_on: use_wake_word
+          then:
+            - voice_assistant.stop:
+
+
+#### SENSOR ######################################################
+sensor:
+  # WiFi Signal als Sensor
+  - platform: wifi_signal # Reports the WiFi signal strength/RSSI in dB
+    name: "WiFi Signal"
+    id: pm25_1_wifi_strength
+    update_interval: 60s
+    icon: mdi:wifi
+    entity_category: "diagnostic" 
+    
+  - platform: copy # Reports the WiFi signal strength in %
+    source_id: pm25_1_wifi_strength
+    name: "WiFi Percent"
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "%"
+    entity_category: "diagnostic"
+
+
+  # Messung der Spannungsversorgung des ESP32 boards
+  - platform: adc
+    pin: 36
+    unit_of_measurement: "V"
+    name: "Power Supply"
+    accuracy_decimals: 2
+    update_interval: 5s
+    attenuation: 6dB
+    filters:
+      - multiply: 28.1826
+      - throttle_average: 60s
+    entity_category: "diagnostic"
+
+  # Messung der internen Temperatur des ESP32 boards
+  - platform: internal_temperature
+    name: "Internal Temp"
+    update_interval: 60s
+
+
+#### SWITCH ######################################################
+switch:
+  - platform: template
+    name: Use wake word
+    id: use_wake_word
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    entity_category: config
+    on_turn_on:
+      - lambda: id(assist).set_use_wake_word(true);
+      - if:
+          condition:
+            not:
+              - voice_assistant.is_running
+          then:
+            - voice_assistant.start_continuous
+    
+    on_turn_off:
+      - voice_assistant.stop
+      - lambda: id(assist).set_use_wake_word(false);
+      - light.turn_off:
+          id: led_ring  
+
+
+  # Neustart des ESP32
+  - platform: restart
+    id: va_restart
+    name: "Restart"
+
+
+#### TEXT SENSOR #################################################
+text_sensor:
+  # Local WiFi Info as Text-Sensor
+  - platform: wifi_info
+    ip_address:
+      name: "Address"
+    ssid:
+      name: "SSID"
+    bssid:
+      name: "Connected BSSID"
+    mac_address:
+      name: "Mac Wifi Address"
+    scan_results:
+      name: "Latest Scan Results"
+  # ESP Version
+  - platform: version
+    name: "ESPHome Version"
+
+#### END #########################################################
+
